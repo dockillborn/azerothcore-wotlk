@@ -109,10 +109,8 @@ enum HatchActions
 enum Misc
 {
     MAX_BOMB_COUNT              = 40,
-
     SCHEDULER_GROUP_HATCHING    = 1,
-
-    EVENT_BERSERK               = 0
+    GROUP_ENRAGE                = 1
 };
 
 struct boss_janalai : public BossAI
@@ -141,9 +139,13 @@ struct boss_janalai : public BossAI
             DoCastAOE(SPELL_HATCH_ALL);
         });
 
-        ScheduleHealthCheckEvent(25, [&] {
-            DoCastSelf(SPELL_ENRAGE, true);
+        ScheduleHealthCheckEvent(20, [&] {
+            if (!me->HasAura(SPELL_ENRAGE))
+                DoCastSelf(SPELL_ENRAGE, true);
+            me->m_Events.CancelEventGroup(GROUP_ENRAGE);
         });
+
+        me->m_Events.KillAllEvents(false);
     }
 
     void JustDied(Unit* killer) override
@@ -183,12 +185,9 @@ struct boss_janalai : public BossAI
             StartBombing();
         }, 20s, 40s);
         ScheduleTimedEvent(10s, [&]{
-            if (HatchAllEggs(HATCH_RESET))
-            {
-                Talk(SAY_SUMMON_HATCHER);
-                me->SummonCreature(NPC_AMANI_HATCHER, hatcherway[0][0], TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
-                me->SummonCreature(NPC_AMANI_HATCHER, hatcherway[1][0], TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
-            }
+            Talk(SAY_SUMMON_HATCHER);
+            me->SummonCreature(NPC_AMANI_HATCHER, hatcherway[0][0], TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
+            me->SummonCreature(NPC_AMANI_HATCHER, hatcherway[1][0], TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
         }, 90s);
         ScheduleTimedEvent(8s, [&]{
             if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
@@ -205,10 +204,15 @@ struct boss_janalai : public BossAI
                 });
             }
         }, 8s);
-        ScheduleUniqueTimedEvent(5min, [&]{
+
+        me->m_Events.AddEventAtOffset([&] {
+            DoCastSelf(SPELL_ENRAGE, true);
+        }, 5min, 5min, GROUP_ENRAGE);
+
+        me->m_Events.AddEventAtOffset([&] {
             Talk(SAY_BERSERK);
             DoCastSelf(SPELL_BERSERK);
-        }, EVENT_BERSERK);
+        }, 10min);
     }
 
     bool HatchAllEggs(uint32 hatchAction)
@@ -362,6 +366,14 @@ struct npc_janalai_hatcher : public ScriptedAI
 
                 if (me->FindNearestCreature(NPC_EGG, 100.0f))
                     context.Repeat(4s);
+                else
+                {
+                    _side = _side ? 0 : 1;
+                    _isHatching = false;
+                    _waypoint = 3;
+                    MoveToNewWaypoint(_waypoint);
+                    context.CancelGroup(SCHEDULER_GROUP_HATCHING);
+                }
             });
         }
         else
